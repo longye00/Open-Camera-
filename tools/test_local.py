@@ -111,9 +111,69 @@ def test_patcher(temp):
     assert blocked,'missing upstream hook must not be guessed'
     print('PASS: source patcher synthetic-fixture tests (not the upstream Android build)')
 
+def test_version_sources(temp):
+    """Regression: versionName may be declared only in AndroidManifest.xml."""
+    cases = [
+        ('gradle-literal', 'versionName "1.56.2"', None, 'app/build.gradle'),
+        ('manifest-only', 'applicationId "net.sourceforge.opencamera"', '1.56.2', 'app/src/main/AndroidManifest.xml'),
+        ('gradle-assignment', "versionName = '1.56.2'", None, 'app/build.gradle'),
+        ('gradle-call', 'versionName("1.56.2")', None, 'app/build.gradle'),
+        ('gradle-overrides-manifest', 'versionName "1.56.2"', '1.55', 'app/build.gradle'),
+        ('wrong-gradle-override', 'versionName "1.55"', '1.56.2', None),
+        ('wrong-manifest', 'applicationId "net.sourceforge.opencamera"', '1.55', None),
+        ('comment-does-not-count', '// versionName "1.56.2"\n', '1.55', None),
+        ('block-comment-ignored', '/* versionName "1.55" */', '1.56.2', 'app/src/main/AndroidManifest.xml'),
+        ('no-version', '', None, None),
+        ('computed-version', 'versionName releaseVersion', '1.56.2', None),
+        ('conflicting-versions', 'versionName "1.56.2"\n versionName "1.55"', None, None),
+        ('concatenated-version', 'versionName "1.56.2" + "-different"', '1.56.2', None),
+    ]
+    for label, declaration, manifest_version, expected_source in cases:
+        root = temp / ('version-' + label)
+        (root / 'app/src/main/res').mkdir(parents=True)
+        (root / 'app/build.gradle').write_text('android { defaultConfig {\n' + declaration + '\n} }\n', encoding='utf-8')
+        attribute = '' if manifest_version is None else ' android:versionName="' + manifest_version + '"'
+        manifest = '<manifest xmlns:android="http://schemas.android.com/apk/res/android"' + attribute + '><application android:label="@string/app_name" /></manifest>'
+        (root / 'app/src/main/AndroidManifest.xml').write_text(manifest, encoding='utf-8')
+        before = {p: p.read_bytes() for p in root.rglob('*') if p.is_file()}
+        try:
+            result = patch.read_upstream_version(root)
+        except ValueError:
+            assert expected_source is None, 'Valid version rejected: ' + label
+        else:
+            assert expected_source is not None, 'Invalid version accepted: ' + label
+            assert result == {'value': '1.56.2', 'source': expected_source}, label
+        assert all(p.read_bytes() == data for p, data in before.items()), 'Version check wrote files: ' + label
+    print('PASS: ' + str(len(cases)) + ' Gradle/manifest version-check regression cases')
+
+    # Apply the complete source patch to a fixture whose version exists ONLY in the manifest.
+    root = temp / 'manifest-only-full-patch'
+    for name, value in FIXTURES.items():
+        path = root / patch.JAVA_REL / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(value, encoding='utf-8')
+    (root / 'app/build.gradle').write_text('android { defaultConfig { applicationId "net.sourceforge.opencamera" } }\n', encoding='utf-8')
+    manifest_path = root / 'app/src/main/AndroidManifest.xml'
+    manifest_path.write_text('<manifest xmlns:android="http://schemas.android.com/apk/res/android" android:versionName="1.56.2" android:versionCode="96"><application android:label="@string/app_name" android:name=".OpenCameraApplication"><activity android:name=".MainActivity" /></application></manifest>', encoding='utf-8')
+    (root / 'app/src/main/res').mkdir(parents=True)
+    before = {p: p.read_bytes() for p in root.rglob('*') if p.is_file()}
+    dry = patch.apply(root, True)
+    assert dry['upstream_version']['source'].endswith('AndroidManifest.xml')
+    assert all(p.read_bytes() == data for p, data in before.items())
+    applied = patch.apply(root)
+    assert applied['upstream_version']['value'] == '1.56.2'
+    assert applied['script_revision'] == '1.1-manifest-version-fix'
+    assert (root / patch.JAVA_REL / 'PhotoNameQueue.java').is_file()
+    assert (root / patch.JAVA_REL / 'AppleLevelGuide.java').is_file()
+    assert 'Open Camera 名单版' in manifest_path.read_text(encoding='utf-8')
+    for path, data in before.items():
+        assert (root / 'namequeue-patch-backup' / path.relative_to(root)).read_bytes() == data
+    print('PASS: complete patch application with manifest-only version (synthetic source fixture)')
+
 if __name__ == '__main__':
     with tempfile.TemporaryDirectory(prefix='namequeue-tests-') as folder:
         temp=Path(folder)
         run_core(temp)
         test_patcher(temp)
-    print('NOT TESTED: Android APK build, installation, actual camera/storage/sensor/UI integration.')
+        test_version_sources(temp)
+    print('NOT TESTED: real upstream Android build, APK installation, camera/storage/sensor/UI integration.')

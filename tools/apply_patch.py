@@ -15,6 +15,8 @@ UPSTREAM_COMMIT = '0dd4cbe78872df2c6e4eb6cee3fb0d5637b0f52e'
 APP_ID = 'net.sourceforge.opencamera.namequeue'
 JAVA_REL = Path('app/src/main/java/net/sourceforge/opencamera')
 MARKER = 'PHOTO_NAME_QUEUE_PATCH_V1'
+EXPECTED_UPSTREAM_VERSION = '1.56.2'
+SCRIPT_REVISION = '1.1-manifest-version-fix'
 
 
 def masked_java(text):
@@ -163,11 +165,60 @@ def patch_java(files):
     return {name: '/* ' + MARKER + ' - GPL-3.0-or-later */\n' + text for name, text in out.items()}
 
 
+def read_upstream_version(root):
+    """Read literal Gradle metadata, falling back to the manifest when not overridden.
+
+    Open Camera can declare android:versionName in AndroidManifest.xml rather
+    than defaultConfig.versionName in app/build.gradle. Keep the version guard;
+    do not confuse an absent Gradle declaration with a wrong upstream release.
+    """
+    gradle_path = root / 'app/build.gradle'
+    gradle_text = gradle_path.read_text(encoding='utf-8-sig')
+    code_mask = masked_java(gradle_text)
+    declarations = list(re.finditer(r'\bversionName\b', code_mask))
+    values = []
+    for declaration in declarations:
+        remainder = gradle_text[declaration.end():]
+        literal = re.match(r'''\s*(?:=\s*)?(\(\s*)?(["'])([^"'\r\n]*)\2''', remainder)
+        if literal is None:
+            raise ValueError('Cannot safely read a computed Gradle versionName. No files changed.')
+        tail_start = declaration.end() + literal.end()
+        tail = code_mask[tail_start:]
+        if literal.group(1):
+            closing = re.match(r'[ \t]*\)', tail)
+            if closing is None:
+                raise ValueError('Unsupported Gradle versionName expression. No files changed.')
+            tail = tail[closing.end():]
+        tail = tail.lstrip(' \t')
+        if tail and tail[0] not in '\r\n;}':
+            raise ValueError('Unsupported Gradle versionName expression. No files changed.')
+        values.append(literal.group(3).strip())
+    if values:
+        if len(set(values)) != 1:
+            raise ValueError('Conflicting Gradle versionName declarations. No files changed.')
+        value = values[0]
+        source = 'app/build.gradle'
+    else:
+        manifest_path = root / 'app/src/main/AndroidManifest.xml'
+        try:
+            manifest_root = ET.fromstring(manifest_path.read_text(encoding='utf-8-sig'))
+        except ET.ParseError as error:
+            raise ValueError('Cannot parse AndroidManifest.xml: ' + str(error)) from error
+        value = manifest_root.get('{http://schemas.android.com/apk/res/android}versionName')
+        source = 'app/src/main/AndroidManifest.xml'
+        if value is None:
+            raise ValueError('No versionName found in app/build.gradle or AndroidManifest.xml. No files changed.')
+        value = value.strip()
+    if value != EXPECTED_UPSTREAM_VERSION:
+        raise ValueError('Expected upstream versionName ' + EXPECTED_UPSTREAM_VERSION
+                         + ', but read ' + repr(value) + ' from ' + source + '. No files changed.')
+    return {'value': value, 'source': source}
+
+
 def patch_identity(root, modifications):
     gradle = root / 'app/build.gradle'
     text = gradle.read_text(encoding='utf-8')
-    if not re.search(r'versionName\s*[= ]\s*[\"\']1\.56\.2[\"\']', text):
-        raise ValueError('This patch requires upstream versionName 1.56.2. No files changed.')
+    version_info = read_upstream_version(root)
     modifications[gradle] = text + f'''\n// {MARKER}: keep the original code/resource namespace, use a separate installation.
 android {{
     defaultConfig {{
@@ -198,6 +249,7 @@ android {{
         if revised != text:
             ET.fromstring(revised)
             modifications[path] = revised
+    return version_info
 
 
 def apply(root, dry_run=False):
@@ -209,12 +261,13 @@ def apply(root, dry_run=False):
         if MARKER in originals[name]: raise ValueError('This source tree is already patched.')
     patched = patch_java(originals)
     modifications = {root / JAVA_REL / name: text for name, text in patched.items()}
-    patch_identity(root, modifications)
+    version_info = patch_identity(root, modifications)
     for name in ('PhotoNameQueue.java', 'PhotoNameQueueCore.java', 'AppleLevelGuide.java', 'LevelGuideCore.java'):
         target = root / JAVA_REL / name
         if target.exists(): raise ValueError('Refusing to overwrite existing ' + str(target))
         modifications[target] = (HERE / 'src/net/sourceforge/opencamera' / name).read_text(encoding='utf-8')
-    report = {'patch': MARKER, 'upstream_commit': UPSTREAM_COMMIT,
+    report = {'patch': MARKER, 'script_revision': SCRIPT_REVISION,
+              'upstream_version': version_info, 'upstream_commit': UPSTREAM_COMMIT,
               'application_id': APP_ID, 'dry_run': dry_run, 'files': []}
     for path, text in modifications.items():
         report['files'].append({'path': str(path.relative_to(root)),
