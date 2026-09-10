@@ -1,0 +1,7 @@
+warning: [options] source value 8 is obsolete and will be removed in a future release
+warning: [options] target value 8 is obsolete and will be removed in a future release
+warning: [options] To suppress warnings about obsolete options, use -Xlint:-options.
+3 warnings
+PASS: 65 queue and level assertions
+PASS: source patcher synthetic-fixture tests (not the upstream Android build)
+NOT TESTED: Android APK build, installation, actual camera/storage/sensor/UI integration.

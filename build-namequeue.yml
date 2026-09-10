@@ -1,0 +1,51 @@
+name: Build Open Camera Name Queue
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Check out patch kit
+        uses: actions/checkout@v4
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+      - name: Get exact upstream source
+        run: |
+          git clone https://git.code.sf.net/p/opencamera/code upstream
+          git -C upstream checkout 0dd4cbe78872df2c6e4eb6cee3fb0d5637b0f52e
+      - name: Test queue and patch machinery
+        run: python3 tools/test_local.py
+      - name: Apply source patch
+        run: python3 tools/apply_patch.py upstream
+      - name: Install compile SDK
+        run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
+      - name: Build test APK
+        working-directory: upstream
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon assembleDebug
+      - name: Collect APK and corresponding source
+        run: |
+          mkdir -p deliverables
+          find upstream/app/build/outputs/apk -name '*debug*.apk' -exec cp {} deliverables/ \;
+          test -n "$(find deliverables -name '*.apk' -print -quit)"
+          cp README_zh.md deliverables/
+          cp LICENSE deliverables/
+          cp upstream/namequeue-patch-report.json deliverables/
+          zip -rq deliverables/OpenCamera-NameQueue-corresponding-source.zip upstream \
+            -x 'upstream/.git/*' '*/.gradle/*' '*/build/*' '*/local.properties'
+          cd deliverables && sha256sum *.apk > APK-SHA256.txt
+      - name: Upload build result
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpenCamera-NameQueue-test-build
+          path: deliverables/
+          retention-days: 30

@@ -1,0 +1,13 @@
+{
+  "queueAndLevelJvmAssertions": 65,
+  "coreJvmTests": "passed",
+  "syntheticSourcePatcherTests": "passed",
+  "staticPreviewDesktopVisualReview": "passed",
+  "staticPreviewMobile390VisualReview": "passed",
+  "realUpstreamSourcePatchApplication": "not_performed",
+  "androidBuild": "not_performed",
+  "apkGenerated": false,
+  "installationTest": "not_performed",
+  "cameraStorageSensorDeviceTests": "not_performed",
+  "realAndroidUiReview": "not_performed"
+}
