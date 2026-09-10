@@ -1,8 +1,6 @@
-# Open Camera：名称队列 + iPhone 风格水平辅助
+# Open Camera：名称队列 + 水平辅助
 
-**交付状态：源码补丁，未编译成 APK，不是手机安装包。**
-
-针对你上传的 **Open Camera 1.56.2（版本号 96，Android 6.0 及以上）** 编写。这里无法联网下载 Android 构建工具，也未取得完整上游源码用于实际合并，因此不声称已完成 Android 编译、安装、相机实拍或传感器实机测试。原始 APK 没有被改动。
+针对 **Open Camera 1.56.2（版本号 96，Android 6.0 及以上）** 编写。这里无法联网下载 Android 构建工具，也未取得完整上游源码用于实际合并，因此不声称已完成 Android 编译、安装、相机实拍或传感器实机测试。原始 APK 没有被改动。
 
 ## 两个功能
 
@@ -13,17 +11,17 @@
 从 Excel 复制一列名称，或者从 TXT 复制多行文字；一行一个名称，不要表头。例如：
 
 ```text
-材料A_CK_R1
-材料A_盐处理_R1
-材料B_CK_R1
+材料A
+材料B
+材料C
 ```
 
 普通单张 JPG 拍照时，计划依次保存为：
 
 ```text
-材料A_CK_R1.jpg
-材料A_盐处理_R1.jpg
-材料B_CK_R1.jpg
+材料A.jpg
+材料B.jpg
+材料C.jpg
 ```
 
 - 自动补 `.jpg`，输入已有 `.jpg` / `.jpeg` 后缀也可以。
@@ -41,7 +39,7 @@
 
 **注意**：此实现对名单照片使用同步保存，速度可能比后台连拍慢，这是为了保证“这一张对应这一个名称”。失败时可能有同名空文件，核对后需要用文件管理器手动删除空文件或换目录；补丁不会擅自删除文件。
 
-### 2. 类似 iPhone 的水平辅助
+### 2. 水平辅助
 
 设计入口：**设置 → 水平辅助（iPhone 风格）**，默认开启，和名称队列独立。
 
@@ -57,66 +55,6 @@
 如果你指的是“拍完自动把照片转正”，Open Camera 原有的自动水平功能属于另一种功能，可能裁剪边缘，本补丁没有默认打开它。为了保留科研照片的原始视野，建议先用水平辅助对齐再拍；原软件中已开启的自动水平设置需自行确认。
 
 `docs/level-preview.html` 是水平辅助的静态界面示意，**不是实际 APK 截图或可调用手机相机的软件**。若原软件原有的角度参考线也开启，建议关闭旧的参考线，避免与新辅助线重复显示。
-
-## 如何得到安装包
-
-下面的自动构建脚本已经提供，但在当前环境**尚未运行**。只有真正构建通过，才能得到 APK；构建通过仍不能代替实机验收。
-
-### 方式 A：GitHub Actions（不必在自己电脑安装 Android Studio）
-
-1. 新建一个你控制的 GitHub 仓库（可设为私有）。将此压缩包的**内部文件**放到仓库根目录，包含 `.github`、`src`、`tools`、`tests`、`LICENSE`、`README_zh.md`。不要额外套一层文件夹。
-2. 在仓库 **Actions** 中启用工作流，选择 **Build Open Camera Name Queue**，点击 **Run workflow**。
-3. 工作流会下载与你的 APK 对应的上游提交，运行本地逻辑测试，尝试应用补丁，并用 Android SDK 36 编译测试版。
-4. 绿色成功后，下载该运行页面底部的 **OpenCamera-NameQueue-test-build** 构建产物。里面才会有 APK，以及修改后的完整对应源码。
-5. 如果构建失败，请提供失败日志继续修正；**不要把当前源码 ZIP 当成 APK 安装**。
-
-测试构建采用独立应用名称“Open Camera 名单版”和独立安装标识，目标是与原版并存，而不是覆盖原版。是否能成功并存尚需安装验证。不要卸载原版或删除现有照片。
-
-工作流用测试签名；不同构建机器可能产生不同签名，后续测试版不能保证直接覆盖安装。长期使用应在你自己的电脑保留固定签名密钥。本包没有原作者的签名密钥。
-
-### 方式 B：本地 Android Studio
-
-需要 Python 3、JDK 17、Android Studio / Android SDK 36，以及联网获取 Gradle 依赖。
-
-上游官方仓库：<https://sourceforge.net/p/opencamera/code/ci/master/tree/>
-
-匹配本次 APK 的提交：`0dd4cbe78872df2c6e4eb6cee3fb0d5637b0f52e`。
-
-```bash
-git clone https://git.code.sf.net/p/opencamera/code OpenCamera-upstream
-cd OpenCamera-upstream
-git checkout 0dd4cbe78872df2c6e4eb6cee3fb0d5637b0f52e
-cd ..
-
-# 在本补丁包根目录运行，路径替换为你的源码目录。
-python tools/test_local.py
-python tools/apply_patch.py ../OpenCamera-upstream --dry-run
-python tools/apply_patch.py ../OpenCamera-upstream
-```
-
-然后用 Android Studio 打开 `OpenCamera-upstream`，同步 Gradle 并构建 Debug APK。命令行可在上游目录使用 `./gradlew assembleDebug`（Windows 为 `gradlew.bat assembleDebug`）。
-
-补丁脚本会先检查方法签名和版本，全部匹配后才改文件，并保留 `namequeue-patch-backup/`。重复应用或入口不匹配时停止，避免猜测代码位置。**这种检查不等于已经在完整上游源码上实际验证过。**
-
-## 验收清单：使用于正式试验前必须完成
-
-- [ ] 正常构建 APK，确认可与原版并存安装，且旧照片仍可访问。
-- [ ] 先用三个测试名称拍三张，检查真实文件名，不只看相册显示标题。
-- [ ] 关闭、重开软件，确认从正确的下一个名称继续。
-- [ ] 拍完名单后确认不会多拍一张时间戳文件。
-- [ ] 创建一个已存在的同名照片，确认不被覆盖且进度不推进。
-- [ ] 模拟空间不足、拍照中断、应用重启，核对待确认和重试流程。
-- [ ] 确认普通目录与手机当前 MediaStore 实现的目录格式、最终名称检查正常。
-- [ ] 验证禁用的拍照模式有清楚提示，不会静默错配名称。
-- [ ] 在实际手机上分别验证竖屏、横屏、反向横屏的水平线方向。
-- [ ] 手机平放拍桌面时验证两个十字的移动方向与重合状态。
-- [ ] 验证“已对齐”变黄、误差阈值、传感器平滑和退出对齐没有异常。
-- [ ] 检查水平辅助没有遮挡快门、对焦点或重要取景内容，开启设置时不会显示。
-- [ ] 比较保存的照片，确认新的参考线没有写入图像，尺寸没有因此改变。
-
-已在当前环境执行：65 项纯 Java 名称/状态/水平仪逻辑断言，以及基于合成源码样例的补丁匹配、备份与重复应用防护测试。
-
-未执行：完整上游补丁合并、Android 编译、APK 签名验证与安装、实机相机和存储测试、实际传感器方向验证、真实 Android UI 视觉验收。
 
 ## 文件说明
 
@@ -134,4 +72,3 @@ python tools/apply_patch.py ../OpenCamera-upstream
 
 Open Camera 为 Mark Harman 等贡献者开发的 GPL-3.0-or-later 项目。本补丁以 GPL-3.0-or-later 提供，不是官方版本，也不与 Apple 关联。
 
-本包不重新分发你上传的原始 APK；生成 APK 的工作流同时打包完整对应源码。以后分发构建出的修改版时，请一并提供完整对应源码及许可证，而不只是安装包。保留上游所有现有版权与许可证声明。
