@@ -1,0 +1,31 @@
+Open Camera 名单版 2 — 验证范围
+
+本轮基于用户上传的 app-debug.apk：
+包名 net.sourceforge.opencamera.namequeue
+版本 1.56.2-namequeue-source1
+Android 最低版本 23，目标版本 36，调试构建。
+在 classes6.dex 中确认包含 PhotoNameQueue 和 AppleLevelGuide。
+
+v2 本地验证已完成：
+PASS: 1100 queue and level assertions
+其中包括同一编号连续 1000 次保存状态提交，均不自动改变当前编号。
+PASS: source patcher synthetic-fixture tests
+PASS: 13 Gradle/manifest version-check regression cases
+PASS: complete patch application with manifest-only version (synthetic source fixture)
+PASS: v2 source contract checks (defaults, selection, persistence, slim level, lifecycle)
+
+这些测试实际在 JVM/Python 中运行，不是 Android 相机运行时测试。
+
+尚未完成：
+- v2 针对完整上游工程的 Android 编译；由用户 GitHub Actions 继续完成。
+- v2 APK 安装、横竖屏取景与触摸区域的手机验收。
+- 真机拍照、MediaStore 文件名与存储权限行为、异常中断恢复。
+- 真机传感器方向与细线可读性。
+
+界面 HTML 仅为布局示意，不是 APK 截图或实机验证依据。
+未修改或重新签名上传的旧 APK，也没有卸载或访问手机上的应用数据。
+
+附加检查：
+PASS: 6 个 Java 源文件通过 Java 8 语法解析（未做 Android 类型检查）。
+PASS: 工作流 YAML、v2 应用标识、新控件包含关系、README 改名兼容性。
+HTML 预览已在 1040px 与 390px 宽度渲染并逐图检查；修复了下拉标记的缺字问题，改为绘制箭头。未发现布局溢出。此结果仅针对示意 HTML，不代表 Android 实机 UI 验收。

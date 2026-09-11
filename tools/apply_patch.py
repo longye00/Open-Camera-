@@ -12,11 +12,11 @@ import xml.etree.ElementTree as ET
 
 HERE = Path(__file__).resolve().parents[1]
 UPSTREAM_COMMIT = '0dd4cbe78872df2c6e4eb6cee3fb0d5637b0f52e'
-APP_ID = 'net.sourceforge.opencamera.namequeue'
+APP_ID = 'net.sourceforge.opencamera.namequeue2'
 JAVA_REL = Path('app/src/main/java/net/sourceforge/opencamera')
-MARKER = 'PHOTO_NAME_QUEUE_PATCH_V1'
+MARKER = 'PHOTO_NAME_QUEUE_PATCH_V2'
 EXPECTED_UPSTREAM_VERSION = '1.56.2'
-SCRIPT_REVISION = '1.1-manifest-version-fix'
+SCRIPT_REVISION = '2.0-multi-photo-manual-selection'
 
 
 def masked_java(text):
@@ -118,7 +118,7 @@ def patch_java(files):
     main = prepend(main, 'takePicturePressed', 2,
                    lambda p: f'if (!PhotoNameQueue.allowShutter(this, {p[0]} || {p[1]})) return;')
     main = append_body(main, 'onResume', 0, lambda p: 'PhotoNameQueue.onResume(this);\n        AppleLevelGuide.onResume(this);')
-    main = prepend(main, 'onPause', 0, lambda p: 'AppleLevelGuide.onPause();')
+    main = prepend(main, 'onPause', 0, lambda p: 'PhotoNameQueue.onPause();\n        AppleLevelGuide.onPause();')
     out['MainActivity.java'] = main
 
     api = out['MyApplicationInterface.java']
@@ -223,7 +223,7 @@ def patch_identity(root, modifications):
 android {{
     defaultConfig {{
         applicationId "{APP_ID}"
-        versionName "1.56.2-namequeue-source1"
+        versionName "1.56.2-namequeue2-test"
     }}
     buildTypes {{ debug {{ applicationIdSuffix "" }} }}
 }}
@@ -232,7 +232,7 @@ android {{
     xml = manifest.read_text(encoding='utf-8')
     # Update only launch label, relative component names and manifest authorities/own permissions.
     xml, replacements = re.subn(r'(<application\b[^>]*?android:label\s*=\s*)[\"\'][^\"\']+[\"\']',
-                                r'\1"Open Camera 名单版"', xml, count=1, flags=re.S)
+                                r'\1"Open Camera 名单版 2"', xml, count=1, flags=re.S)
     if replacements != 1: raise ValueError('Missing application label; refusing partial patch.')
     xml = re.sub(r'(android:(?:name|targetActivity)\s*=\s*[\"\'])\.',
                  r'\1net.sourceforge.opencamera.', xml)
@@ -262,7 +262,7 @@ def apply(root, dry_run=False):
     patched = patch_java(originals)
     modifications = {root / JAVA_REL / name: text for name, text in patched.items()}
     version_info = patch_identity(root, modifications)
-    for name in ('PhotoNameQueue.java', 'PhotoNameQueueCore.java', 'AppleLevelGuide.java', 'LevelGuideCore.java'):
+    for name in ('PhotoNameQueue.java', 'PhotoNameQueueCore.java', 'AppleLevelGuide.java', 'LevelGuideCore.java', 'PhotoNameQueueControls.java'):
         target = root / JAVA_REL / name
         if target.exists(): raise ValueError('Refusing to overwrite existing ' + str(target))
         modifications[target] = (HERE / 'src/net/sourceforge/opencamera' / name).read_text(encoding='utf-8')

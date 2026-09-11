@@ -37,15 +37,17 @@ jobs:
           mkdir -p deliverables
           find upstream/app/build/outputs/apk -name '*debug*.apk' -exec cp {} deliverables/ \;
           test -n "$(find deliverables -name '*.apk' -print -quit)"
-          cp README_zh.md deliverables/
+          for file in README.md README_zh.md UPGRADE-v2.md; do
+            if [ -f "$file" ]; then cp "$file" deliverables/; fi
+          done
           cp LICENSE deliverables/
           cp upstream/namequeue-patch-report.json deliverables/
-          zip -rq deliverables/OpenCamera-NameQueue-corresponding-source.zip upstream \
+          zip -rq deliverables/OpenCamera-NameQueue-v2-corresponding-source.zip upstream \
             -x 'upstream/.git/*' '*/.gradle/*' '*/build/*' '*/local.properties'
           cd deliverables && sha256sum *.apk > APK-SHA256.txt
       - name: Upload build result
         uses: actions/upload-artifact@v4
         with:
-          name: OpenCamera-NameQueue-test-build
+          name: OpenCamera-NameQueue-v2-test-build
           path: deliverables/
           retention-days: 30

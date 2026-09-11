@@ -8,7 +8,6 @@ import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
-import android.graphics.RectF;
 import android.hardware.Sensor;
 import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
@@ -28,15 +27,14 @@ public final class AppleLevelGuide implements SensorEventListener {
     private boolean listening, available, sampleReady;
     private float gx, gy, gz;
     private long sampleTime;
-    private final RectF label = new RectF();
     private AppleLevelGuide() {}
 
     private static boolean enabled(Context context) {
-        return context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean("enabled", true);
+        return context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean("enabled", false);
     }
 
     public static void onResume(MainActivity activity) {
-        if (enabled(activity)) INSTANCE.start(activity);
+        if (enabled(activity)) INSTANCE.start(activity); else INSTANCE.stop();
     }
 
     public static void onPause() { INSTANCE.stop(); }
@@ -93,34 +91,20 @@ public final class AppleLevelGuide implements SensorEventListener {
         try {
             canvas.rotate(uiRotation, cx, cy);
             if (r.flat) {
-                // Fixed target plus mobile cross. Offset direction follows the sensed local tilt.
-                cross(canvas, cx, cy, 13 * scale, Color.rgb(175, 175, 183), scale);
-                float dx = r.aligned ? 0 : clamp(r.tiltX * 3.5f, -48, 48) * scale;
-                float dy = r.aligned ? 0 : -clamp(r.tiltY * 3.5f, -48, 48) * scale;
-                cross(canvas, cx + dx, cy + dy, 13 * scale, color, scale);
+                if (!r.aligned) cross(canvas, cx, cy, 8 * scale, Color.argb(170, 195, 200, 208), scale);
+                float dx = r.aligned ? 0 : clamp(r.tiltX * 2.6f, -32, 32) * scale;
+                float dy = r.aligned ? 0 : -clamp(r.tiltY * 2.6f, -32, 32) * scale;
+                cross(canvas, cx + dx, cy + dy, 8 * scale, color, scale);
             } else {
-                line(canvas, cx - 75 * scale, cy, cx - 38 * scale, cy,
-                        r.aligned ? color : Color.rgb(205, 205, 212), scale);
-                line(canvas, cx + 38 * scale, cy, cx + 75 * scale, cy,
-                        r.aligned ? color : Color.rgb(205, 205, 212), scale);
-                float angle = r.aligned ? 0 : clamp(-r.roll, -35, 35);
+                int reference = r.aligned ? color : Color.argb(170, 220, 224, 230);
+                line(canvas, cx - 58 * scale, cy, cx - 24 * scale, cy, reference, scale);
+                line(canvas, cx + 24 * scale, cy, cx + 58 * scale, cy, reference, scale);
                 canvas.save();
-                canvas.rotate(angle, cx, cy);
-                line(canvas, cx - 30 * scale, cy, cx + 30 * scale, cy, color, scale);
+                canvas.rotate(r.aligned ? 0 : clamp(-r.roll, -35, 35), cx, cy);
+                line(canvas, cx - 22 * scale, cy, cx + 22 * scale, cy, color, scale);
                 canvas.restore();
             }
-            String text = r.aligned ? "已对齐" : r.flat ? "俯拍 · 对齐两个十字" : "保持水平";
-            paint.setTextSize(14 * a.getResources().getDisplayMetrics().scaledDensity);
-            paint.setTextAlign(Paint.Align.CENTER);
-            paint.setStyle(Paint.Style.FILL);
-            float textWidth = paint.measureText(text);
-            float baseline = cy + 83 * scale;
-            label.set(cx - textWidth / 2 - 12 * scale, baseline + paint.ascent() - 7 * scale,
-                    cx + textWidth / 2 + 12 * scale, baseline + paint.descent() + 7 * scale);
-            paint.setColor(Color.argb(225, 24, 24, 26));
-            canvas.drawRoundRect(label, 8 * scale, 8 * scale, paint);
-            paint.setColor(color);
-            canvas.drawText(text, cx, baseline, paint);
+            // No text badge or opaque rectangle over the scene.
         } finally { canvas.restore(); }
     }
 
@@ -128,9 +112,9 @@ public final class AppleLevelGuide implements SensorEventListener {
     private void line(Canvas c, float x1, float y1, float x2, float y2, int color, float s) {
         paint.setStyle(Paint.Style.STROKE);
         paint.setStrokeCap(Paint.Cap.ROUND);
-        paint.setStrokeWidth(5 * s); paint.setColor(Color.argb(180, 0, 0, 0));
+        paint.setStrokeWidth(1.8f * s); paint.setColor(Color.argb(75, 0, 0, 0));
         c.drawLine(x1, y1, x2, y2, paint);
-        paint.setStrokeWidth(2.5f * s); paint.setColor(color);
+        paint.setStrokeWidth(1.0f * s); paint.setColor(color);
         c.drawLine(x1, y1, x2, y2, paint);
     }
     private void cross(Canvas c, float x, float y, float size, int color, float s) {
@@ -145,8 +129,8 @@ public final class AppleLevelGuide implements SensorEventListener {
         item.setKey("apple_style_level_entry");
         item.setPersistent(false);
         item.setOrder(-99);
-        item.setTitle("水平辅助（iPhone 风格）");
-        item.setSummary("水平线 / 俯拍十字；对齐后变黄。仅取景提示，不自动旋转或裁剪照片。");
+        item.setTitle("水平辅助（细线）");
+        item.setSummary("默认关闭；开启后显示细水平线 / 小十字，对齐变黄。仅取景提示，不修改照片。");
         item.setChecked(enabled(a));
         SensorManager sm = (SensorManager) a.getSystemService(Context.SENSOR_SERVICE);
         if (sm == null || (sm.getDefaultSensor(Sensor.TYPE_GRAVITY) == null

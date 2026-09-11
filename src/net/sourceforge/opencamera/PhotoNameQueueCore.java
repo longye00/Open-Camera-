@@ -8,6 +8,8 @@ import java.text.Normalizer;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
@@ -72,51 +74,145 @@ public final class PhotoNameQueueCore {
         return out.toString();
     }
 
-    /** pending survives process death: never silently guess whether a photo was saved. */
+    public static final int MAX_SERIAL = 999999;
+
+    private static String key(String name) {
+        return Normalizer.normalize(name, Normalizer.Form.NFC).toLowerCase(Locale.ROOT);
+    }
+
+    public static String numberedFilename(String name, int number) {
+        if (number < 1 || number > MAX_SERIAL) throw new IllegalArgumentException("照片序号超出范围。");
+        return name + "_" + String.format(Locale.ROOT, "%03d", number) + ".jpg";
+    }
+
+    /** Only recognizes this exact identifier's numbered JPGs, not another identifier's files. */
+    public static int serialFromFilename(String name, String filename) {
+        if (filename == null) return 0;
+        String prefix = key(name) + "_";
+        String value = key(filename);
+        if (!value.startsWith(prefix) || !value.endsWith(".jpg")) return 0;
+        String digits = value.substring(prefix.length(), value.length() - 4);
+        if (!digits.matches("[0-9]{3,6}")) return 0;
+        try { return Integer.parseInt(digits); }
+        catch (NumberFormatException ignored) { return 0; }
+    }
+
+    /** Immutable per-identifier state. A save never changes the selected identifier by default. */
     public static final class State {
         public final List<String> names;
-        public final int next;
-        public final boolean enabled;
-        public final boolean pending;
-        public State(List<String> names, int next, boolean enabled, boolean pending) {
-            if (names == null || next < 0 || next > names.size()
-                    || (pending && next == names.size()))
-                throw new IllegalArgumentException("Invalid queue state");
+        public final int selected;
+        public final boolean enabled, autoAdvance, pending;
+        public final int pendingNumber;
+        public final Map<String, Integer> lastNumbers, savedCounts;
+
+        public State(List<String> names, int selected, boolean enabled, boolean autoAdvance,
+                     Map<String, Integer> lastNumbers, Map<String, Integer> savedCounts,
+                     int pendingNumber) {
+            if (names == null || selected < 0 || (!names.isEmpty() && selected >= names.size())
+                    || (names.isEmpty() && selected != 0) || pendingNumber < 0 || pendingNumber > MAX_SERIAL
+                    || (names.isEmpty() && (enabled || pendingNumber != 0)))
+                throw new IllegalArgumentException("Invalid identifier state");
             this.names = Collections.unmodifiableList(new ArrayList<>(names));
-            this.next = next;
+            this.selected = selected;
             this.enabled = enabled;
-            this.pending = pending;
+            this.autoAdvance = autoAdvance;
+            this.lastNumbers = immutableNumbers(lastNumbers);
+            this.savedCounts = immutableNumbers(savedCounts);
+            this.pendingNumber = pendingNumber;
+            this.pending = pendingNumber > 0;
+            if (pending && pendingNumber <= numberFor(currentName()))
+                throw new IllegalArgumentException("Pending photo number was already used");
         }
-        public boolean ready() { return enabled && !pending && next < names.size(); }
+
+        private static Map<String, Integer> immutableNumbers(Map<String, Integer> source) {
+            Map<String, Integer> copy = new HashMap<>();
+            if (source != null) for (Map.Entry<String, Integer> entry : source.entrySet()) {
+                Integer n = entry.getValue();
+                if (entry.getKey() == null || n == null || n < 0 || n > MAX_SERIAL)
+                    throw new IllegalArgumentException("Invalid photo counter");
+                copy.put(key(entry.getKey()), n);
+            }
+            return Collections.unmodifiableMap(copy);
+        }
+
+        public static State empty() {
+            return new State(Collections.<String>emptyList(), 0, false, false, null, null, 0);
+        }
+
+        public String currentName() {
+            if (names.isEmpty()) throw new IllegalStateException("请先导入拍摄编号。");
+            return names.get(selected);
+        }
+        public int numberFor(String name) {
+            Integer number = lastNumbers.get(key(name));
+            return number == null ? 0 : number;
+        }
+        public int countFor(String name) {
+            Integer number = savedCounts.get(key(name));
+            return number == null ? 0 : number;
+        }
+        public int nextNumber() {
+            int n = numberFor(currentName()) + 1;
+            if (n > MAX_SERIAL) throw new IllegalStateException("当前编号的照片序号已用完，请选择其他编号。");
+            return n;
+        }
+        public boolean ready() {
+            return enabled && !pending && !names.isEmpty() && numberFor(currentName()) < MAX_SERIAL;
+        }
         public String filename() {
-            if (next >= names.size()) throw new IllegalStateException("名称列表已经拍完。");
-            return names.get(next) + ".jpg";
+            return numberedFilename(currentName(), pending ? pendingNumber : nextNumber());
         }
-        public State begin() {
-            if (!ready()) throw new IllegalStateException(pending
-                    ? "上一张照片的保存状态待确认。" : "名单未启用或已经拍完。");
-            return new State(names, next, enabled, true);
+        private void mutable() {
+            if (pending) throw new IllegalStateException("请先确认上一张照片的保存状态。");
         }
-        public State saved() {
-            if (!pending) throw new IllegalStateException("No active photo transaction");
-            return new State(names, next + 1, enabled, false);
+        public State begin() { return begin(nextNumber()); }
+        public State begin(int number) {
+            if (!ready()) throw new IllegalStateException(pending ? "上一张照片的保存状态待确认。" : "编号拍摄未启用或尚未导入名单。");
+            if (number < nextNumber() || number > MAX_SERIAL) throw new IllegalArgumentException("照片序号不可回退。");
+            return new State(names, selected, enabled, autoAdvance, lastNumbers, savedCounts, number);
         }
+        public State saved() { return resolve(true); }
         public State resolve(boolean wasSaved) {
-            if (!pending) throw new IllegalStateException("No pending photo to review");
-            return new State(names, next + (wasSaved ? 1 : 0), enabled, false);
+            if (!pending) throw new IllegalStateException("No pending photo transaction");
+            Map<String, Integer> numbers = new HashMap<>(lastNumbers);
+            Map<String, Integer> counts = new HashMap<>(savedCounts);
+            numbers.put(key(currentName()), pendingNumber);
+            if (wasSaved) counts.put(key(currentName()), countFor(currentName()) + 1);
+            int target = selected;
+            if (wasSaved && autoAdvance && selected + 1 < names.size()) target++;
+            // An uncertain/failed attempt reserves its suffix but never consumes a success count.
+            return new State(names, target, enabled, autoAdvance, numbers, counts, 0);
         }
         public State enable(boolean value) {
-            return new State(names, next, value, pending);
+            mutable();
+            if (value && names.isEmpty()) throw new IllegalStateException("请先导入编号。");
+            return new State(names, selected, value, autoAdvance, lastNumbers, savedCounts, 0);
         }
-        public State seek(int index) {
-            if (pending) throw new IllegalStateException("请先确认上一张照片是否保存成功。");
-            return new State(names, index, enabled, false);
+        public State setAutoAdvance(boolean value) {
+            mutable();
+            return new State(names, selected, enabled, value, lastNumbers, savedCounts, 0);
+        }
+        public State select(int index) {
+            mutable();
+            if (index < 0 || index >= names.size()) throw new IllegalArgumentException("请选择有效编号。");
+            return new State(names, index, enabled, autoAdvance, lastNumbers, savedCounts, 0);
+        }
+        public State withNames(List<String> replacement) {
+            mutable();
+            if (replacement == null || replacement.isEmpty()) throw new IllegalArgumentException("编号名单不能为空。");
+            int target = 0;
+            if (!names.isEmpty()) for (int i = 0; i < replacement.size(); i++) {
+                if (key(replacement.get(i)).equals(key(currentName()))) { target = i; break; }
+            }
+            // History is retained even for removed identifiers, preventing suffix reuse on re-import.
+            return new State(replacement, target, true, autoAdvance, lastNumbers, savedCounts, 0);
         }
         public String status() {
-            if (pending) return "待确认：" + filename() + "（进度未推进）";
-            if (next == names.size()) return "名单已完成：" + names.size() + " / " + names.size();
-            return (enabled ? "下一张：" : "已暂停；下一张：") + filename()
-                    + "（" + (next + 1) + " / " + names.size() + "）";
+            if (names.isEmpty()) return "尚未导入拍摄编号";
+            if (pending) return "待确认：" + filename();
+            return (enabled ? "当前编号：" : "已暂停；当前编号：") + currentName()
+                    + " · 本版已确认 " + countFor(currentName()) + " 张"
+                    + " · " + (autoAdvance ? "自动切换" : "手动切换");
         }
     }
 }

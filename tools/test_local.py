@@ -109,6 +109,11 @@ def test_patcher(temp):
     try:patch.patch_java(changed)
     except ValueError:blocked=True
     assert blocked,'missing upstream hook must not be guessed'
+    assert (root/patch.JAVA_REL/'PhotoNameQueueControls.java').is_file()
+    assert 'PhotoNameQueue.onPause();' in (root/patch.JAVA_REL/'MainActivity.java').read_text()
+    gradle = (root/'app/build.gradle').read_text()
+    assert 'net.sourceforge.opencamera.namequeue2' in gradle
+    assert '1.56.2-namequeue2-test' in gradle
     print('PASS: source patcher synthetic-fixture tests (not the upstream Android build)')
 
 def test_version_sources(temp):
@@ -162,7 +167,7 @@ def test_version_sources(temp):
     assert all(p.read_bytes() == data for p, data in before.items())
     applied = patch.apply(root)
     assert applied['upstream_version']['value'] == '1.56.2'
-    assert applied['script_revision'] == '1.1-manifest-version-fix'
+    assert applied['script_revision'] == '2.0-multi-photo-manual-selection'
     assert (root / patch.JAVA_REL / 'PhotoNameQueue.java').is_file()
     assert (root / patch.JAVA_REL / 'AppleLevelGuide.java').is_file()
     assert 'Open Camera 名单版' in manifest_path.read_text(encoding='utf-8')
@@ -170,10 +175,30 @@ def test_version_sources(temp):
         assert (root / 'namequeue-patch-backup' / path.relative_to(root)).read_bytes() == data
     print('PASS: complete patch application with manifest-only version (synthetic source fixture)')
 
+def test_v2_source_contracts():
+    java = ROOT / 'src/net/sourceforge/opencamera'
+    level = (java / 'AppleLevelGuide.java').read_text(encoding='utf-8')
+    adapter = (java / 'PhotoNameQueue.java').read_text(encoding='utf-8')
+    controls = (java / 'PhotoNameQueueControls.java').read_text(encoding='utf-8')
+    assert 'getBoolean("enabled", false)' in level
+    assert 'getBoolean("enabled", true)' not in level
+    assert 'paint.setStrokeWidth(1.0f * s)' in level
+    assert 'drawText(' not in level and 'drawRoundRect(' not in level
+    assert 'getBoolean("auto_advance", false)' in adapter
+    assert 'state.begin(candidateFor(activity, state))' in adapter
+    assert 'putInt("pending_number", state.pendingNumber)' in adapter
+    assert 'setTextWatcher' not in adapter  # use the actual Android addTextChangedListener API
+    assert 'addTextChangedListener' in adapter and 'current.select(index).enable(true)' in adapter
+    assert 'root.setFocusableInTouchMode(true)' in adapter
+    assert 'removeCallbacks(TICK)' in controls
+    assert 'setOnLongClickListener' in controls and 'getUIRotation()' in controls
+    print('PASS: v2 source contract checks (defaults, selection, persistence, slim level, lifecycle)')
+
 if __name__ == '__main__':
     with tempfile.TemporaryDirectory(prefix='namequeue-tests-') as folder:
         temp=Path(folder)
         run_core(temp)
         test_patcher(temp)
         test_version_sources(temp)
+        test_v2_source_contracts()
     print('NOT TESTED: real upstream Android build, APK installation, camera/storage/sensor/UI integration.')
